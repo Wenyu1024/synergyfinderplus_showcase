@@ -22,7 +22,7 @@ meta$Conc3 <- c(
 meta$Drug3 <- rep("Piperaquine", length(meta$Conc3))
 
 data <- NULL
-
+%>% 
 for (i in 1:12) {
   Conc1 <- as.numeric(unlist(strsplit(meta$RowConcs[i], ",")))
   Conc2 <- as.numeric(unlist(strsplit(meta$ColConcs[i], ",")))
