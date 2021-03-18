@@ -8,7 +8,7 @@ url <- sprintf(url.base, id)
 file.name <- paste0(as.character(id), ".zip")
 download.file(url = url, destfile = paste0("./data/raw_data/", file.name), 
               mode = "wb")
-unzip(paste0("./data/raw_data/", file.name), exdir = paste0("./data/unzip/", id))
+# unzip(paste0("./data/raw_data/", file.name), exdir = paste0("./data/unzip/", id))
 
 meta <- read.csv(paste0("./data/unzip/", id, "/metadata.csv"), stringsAsFactors = FALSE)
 response <- read.csv(paste0("./data/unzip/", id, "/responses.csv"), stringsAsFactors = FALSE)

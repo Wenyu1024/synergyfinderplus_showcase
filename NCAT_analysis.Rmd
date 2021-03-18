@@ -68,10 +68,6 @@ for (i in 1:nrow(meta)) {
 ```
 
 
-
-
-
-
 ```{r}
 library(rvest)
 # library(rebus)
@@ -191,6 +187,7 @@ dir <-"C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfi
 url.base <- "https://tripod.nih.gov/matrix-client/rest/matrix/export/%s?default"
 
 get_triocomb_data <- function(id){
+  library(rvest)
   #load data
   url <- sprintf(url.base, id)
   file.name <- paste0(as.character(id), ".zip")
@@ -272,7 +269,7 @@ get_triocomb_data <- function(id){
     separate_rows(ColConcs,sep= ",") %>% 
     rename( drug1= RowName) %>% 
     rename(drug2=ColName) %>% 
-    rename(conc1= RowConcs) %>% 
+    rename(conc1= RowConcs) %>%  
     rename(conc2= ColConcs) %>% 
     rename(conc_unit1= RowConcUnit) %>% 
     rename(conc_unit2= ColConcUnit) %>% 
@@ -280,10 +277,10 @@ get_triocomb_data <- function(id){
     mutate(Row= id) %>% 
     arrange(conc2,decreasing=T) %>% 
     mutate(Col= id) %>% 
-    left_join(response) %>%
+    left_join(response %>% rename(response = Value)) %>%
     mutate(conc1= as.numeric(conc1)) %>% 
     mutate(conc2= as.numeric(conc2)) %>%  
-    select(BlockId,Replicate,drug1,drug2,drug3,conc1,conc2,conc3,Value,conc_unit1,conc_unit2,conc_unit3,  RowSid, ColSid)
+    select(BlockId,Replicate,drug1,drug2,drug3,conc1,conc2,conc3,response,conc_unit1,conc_unit2,conc_unit3,  RowSid, ColSid)
   
   
   # now deal with the DMSO issue, basically use response of rows where third drug is DMSO as zero concentration response for all the other drug 3
@@ -296,13 +293,110 @@ get_triocomb_data <- function(id){
     mutate(drug3= str_c(other_drug3,collapse = ",")) %>% 
     separate_rows(drug3,sep = ",") %>% 
     bind_rows(complete %>% filter(drug3 != "DMSO")) %>% 
-    distinct() 
-  
-  
+    distinct() %>%
+    select(- BlockId)
+ 
+  blockid= group_indices(.data = complete_enhanced, drug1,drug2,drug3)
+  complete_enhanced <- complete_enhanced %>%  mutate(block_id= blockid)
   
   return(complete_enhanced)
 }
 
-tmp =get_triocomb_data(id = 12255) # compare this ouput with Shuyu's code output
+```
+
+
+
+```{r}
+data <- get_triocomb_data(id = 12255) 
+data1 <- data %>% 
+  # mutate_at(6:8, .funs = function(x){x*1000}) 
+  filter(block_id==1) %>% 
+  # filter(drug3== "Atazanavir") %>% 
+  # filter(Replicate== 1)
+
+library(synergyfinder)
+res <- ReshapeData(data1, data_type = "inhibition")
+
+# Plot monotherapy dose-response curves and dose response matrix
+PlotDoseResponse(res, statistic = "ci", block_ids = 1,save_file = T,width = 30,height = 15)
+Plot2DrugSurface(res, plot_block = 1)
+
+# Calculate and visualize synergy scores
+res_hsa <- CalculateSynergy(res, method = c("HSA"))
+res_Bliss <- CalculateSynergy(res, method = c("Bliss"))
+res_loewe <- CalculateSynergy(res, method = c("Loewe"))
+res_zip <- CalculateSynergy(res, method = c("ZIP"))
+
+# 2D heatmap with 95% confidence intervals
+Plot2DrugHeatmap(res_hsa,plot_value = "HSA_synergy", plot_block = 1, statistic = "ci") 
+Plot2DrugHeatmap(res_Bliss,plot_value = "Bliss_synergy", plot_block = 1, statistic = "ci")  
+# 2D heatmap with 95% confidence intervals and mean hsa synergy for whole matrix
+Plot2DrugHeatmap(res_loewe, plot_value = "Loewe_synergy", plot_block = 1,
+                 statistic = "ci", summary_statistic = "mean")
+Plot2DrugHeatmap(res_zip, plot_value = "ZIP_synergy", plot_block = 1,
+                 statistic = "ci", summary_statistic = "mean")
+# 3D landscape
+Plot2DrugSurface(res_hsa, plot_value = "HSA_synergy", plot_block = 1)
+Plot2DrugSurface(res_zip, plot_value = "ZIP_synergy", plot_block = 1)
+
+
+```
+
+
+actual figure  for the manuscript
+```{r}
+library(synergyfinder)
+# answer Jing's question
+load("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/wrkenv.RData")
+res1 = ReshapeData(data1, data_type = "inhibition")
+PlotMultiDrugSurface(res1, plot_block = 1, plot_value = "response")
+PlotMultiDrugSurface(res1, plot_block = 1, plot_value = "response") # four synerg score
+PlotMultiDrugSurface(res1, plot_block = 1, plot_value = "response")
+PlotMultiDrugSurface(res1, plot_block = 1, plot_value = "response")
+
+```
+
+check if comb2 works for synergyfinder analysis
+```{r}
+load("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/wrkenv_oneil.RData")
+block_id <- group_indices(comb2,drug1,drug2)
+comb2 <- comb2 %>% mutate(block_id= block_id)
+data1 <- comb2 %>% 
+  select_at(-9:-12) %>% 
+  # mutate_at(6:8, .funs = function(x){x*1000}) 
+  filter(block_id==1) %>% 
+  # filter(drug3== "Atazanavir") %>% 
+  # filter(rep== 1) %>% 
+  filter(batch==1) %>% 
+  filter(cell_line== "A2058") %>% 
+  rename(response= viability) %>% 
+  mutate(ConcUnit= "uM") %>% 
+  drop_na()
+
+library(synergyfinder)
+res <- ReshapeData(data1, data_type = "viability")
+
+# Plot monotherapy dose-response curves and dose response matrix
+PlotDoseResponse(res, statistic = "ci", block_ids = 1,save_file = T,width = 30,height = 15)
+Plot2DrugSurface(res, plot_block = 1)
+
+# Calculate and visualize synergy scores
+res_hsa <- CalculateSynergy(res, method = c("HSA"))
+res_Bliss <- CalculateSynergy(res, method = c("Bliss"))
+res_loewe <- CalculateSynergy(res, method = c("Loewe"))
+res_zip <- CalculateSynergy(res, method = c("ZIP"))
+
+# 2D heatmap with 95% confidence intervals
+Plot2DrugHeatmap(res_hsa,plot_value = "HSA_synergy", plot_block = 1, statistic = "ci") 
+Plot2DrugHeatmap(res_Bliss,plot_value = "Bliss_synergy", plot_block = 1, statistic = "ci")  
+# 2D heatmap with 95% confidence intervals and mean hsa synergy for whole matrix
+Plot2DrugHeatmap(res_loewe, plot_value = "Loewe_synergy", plot_block = 1,
+                 statistic = "ci", summary_statistic = "mean")
+Plot2DrugHeatmap(res_zip, plot_value = "ZIP_synergy", plot_block = 1,
+                 statistic = "ci", summary_statistic = "mean")
+# 3D landscape
+Plot2DrugSurface(res_hsa, plot_value = "HSA_synergy", plot_block = 1)
+Plot2DrugSurface(res_zip, plot_value = "ZIP_synergy", plot_block = 1)
+
 ```
 
