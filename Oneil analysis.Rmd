@@ -160,7 +160,7 @@ Note to prepare drug combinnation screening data for synergy calculation, Single
 
 Jing ask me to use drugcomb curated data directly. I got a huge csv file from Jehad. Lets see how this works
 ```{r}
-drugcomb_oneil <- read_csv("c:/Users/wenyu/Documents/work group Jing/Drugcomb/drugcomb.csv") 
+drugcomb_oneil <- read_csv("C:/Users/wenyu/Documents/work group Jing/Drugcomb/2016_ONeil/drugcomb_oneil.csv") 
 
 data2 <- drugcomb_oneil %>% 
   filter(block_id==1) %>% 
