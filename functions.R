@@ -1,4 +1,4 @@
-get_triocomb_data <- function(id){
+get_triocomb_data <- function(id, output_type= "DMSO_collapsed_data"){
   dir <-"C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase" 
   url.base <- "https://tripod.nih.gov/matrix-client/rest/matrix/export/%s?default"
   
@@ -32,15 +32,16 @@ get_triocomb_data <- function(id){
   tmp2 <- str_split(string = as.matrix(tmp1),pattern = "uM", n=2,simplify =T)
   
   tmp3 <- as_tibble(data.frame(tmp2)) %>% 
-    mutate(id= 1:length(idx)) %>% 
+    mutate(serial= 1:length(idx)) %>% 
     mutate(X3= str_detect(X1, "\\("))
-  
+
+  # DMSO data points  
   tmp4 <- tmp3 %>% 
     filter(X1== "DMSOUnknown") %>% 
     mutate(drug3= "DMSO") %>% 
     mutate(conc3= 0) %>% 
-    select(id, drug3, conc3)
-  
+    select(serial, drug3, conc3)
+  # deall with drugs whose name does not have a space in it
   tmp5 <- tmp3 %>% filter(!X3) %>% 
     filter(X1 != "DMSOUnknown") %>%
     mutate(X4= str_split(X1, pattern = " ")) %>%
@@ -57,9 +58,10 @@ get_triocomb_data <- function(id){
                             tmp <- x1[ length(x1)-1]
                             return(tmp)
                           } )) %>%
-    select(id, drug3, conc3) %>% 
+    select(serial, drug3, conc3) %>% 
     mutate_at(.vars = 3,.funs = as.numeric)
-  
+
+  #deal with those drug who has a spaec in their names  
   tmp6 <- tmp3 %>% 
     filter(X3) %>% 
     mutate(X4= str_split(X1, pattern = "\\) ")) %>% 
@@ -72,32 +74,51 @@ get_triocomb_data <- function(id){
       tmp <- as.numeric(x[[2]])
       return(tmp)
     } ))  %>% 
-    select(id, drug3, conc3)
+    select(serial, drug3, conc3)
   
-  id <- rep(1:10, each = nrow(response)/10)
-  complete <- bind_rows(tmp4, tmp5, tmp6) %>% 
+  # combine all three parts together
+  webtable_drug3 <- bind_rows(tmp4, tmp5, tmp6) %>% 
     mutate(conc_unit3= "uM") %>% 
-    arrange(id) %>% 
+    arrange(serial) 
+  
+  # webtable can be directly combined with calc because I mannually checked that the MedianExcess column is the same  (also in same order)
+  # between two table. calc table proivde the block an replicate id and can then be used to join with meta table
+  # now I have this enhanced metat which also have additional columns for drug3
+  meta_enhanced <- webtable_drug3 %>% 
     bind_cols(calc %>% select(BlockId,	Replicate)) %>% 
     inner_join(meta,by = "BlockId") %>% 
-    select(-id) %>% 
-    distinct() %>% 
-    separate_rows(RowConcs,sep = ",") %>% 
-    separate_rows(ColConcs,sep= ",") %>% 
+    select(-serial) %>% 
+    distinct() 
+
+  #expand the enhanced meta table to release the folded conc1 and conc2 
+  meta_expanded <- meta_enhanced %>% 
     rename( drug1= RowName) %>% 
     rename(drug2=ColName) %>% 
     rename(conc1= RowConcs) %>%  
     rename(conc2= ColConcs) %>% 
     rename(conc_unit1= RowConcUnit) %>% 
     rename(conc_unit2= ColConcUnit) %>% 
-    arrange(conc1,decreasing=T) %>% 
-    mutate(Row= id) %>% 
-    arrange(conc2,decreasing=T) %>% 
-    mutate(Col= id) %>% 
-    left_join(response %>% rename(response = Value)) %>%
+    separate_rows(conc1,sep = ",") %>% 
+    separate_rows(conc2,sep= ",") %>% 
     mutate(conc1= as.numeric(conc1)) %>% 
     mutate(conc2= as.numeric(conc2)) %>%  
-    select(BlockId,Replicate,drug1,drug2,drug3,conc1,conc2,conc3,response,conc_unit1,conc_unit2,conc_unit3,  RowSid, ColSid)
+    select(BlockId,Replicate,drug1,drug2,drug3,conc1,conc2,conc3,conc_unit1,conc_unit2,conc_unit3,  RowSid, ColSid)
+  
+  # now to join this expanded meta table with the response table 
+  # I have to generate so called row and column id 
+  # as the response table does not use the drug names and concentration to indicate data point.
+  # Instead response table use block to indicate drug pair and row/column id to indicate concentration
+  id <- rep(1:10, each = nrow(response)/10)
+  
+  complete <- meta_expanded %>% 
+    arrange(desc(conc1)) %>% 
+    mutate(Row= id) %>% 
+    arrange(desc(conc2)) %>% 
+    mutate(Col= id) %>% 
+    inner_join(response %>% rename(response = Value), by = c("BlockId", "Col", "Row", "Replicate")) %>%
+    select(- Col, - Row) %>% 
+    arrange(BlockId, Replicate, desc(conc3), desc(conc2), desc(conc1)) 
+
   
   
   # now deal with the DMSO issue, basically use response of rows where third drug is DMSO as zero concentration response for all the other drug 3
@@ -116,5 +137,6 @@ get_triocomb_data <- function(id){
   blockid= group_indices(.data = complete_enhanced, drug1,drug2,drug3)
   complete_enhanced <- complete_enhanced %>%  mutate(block_id= blockid)
   
-  return(complete_enhanced)
+  if (output_type== "DMSO_collapsed_data"){return(complete_enhanced)}
+  if (output_type== "raw_data"){return(complete_enhanced)}
 }

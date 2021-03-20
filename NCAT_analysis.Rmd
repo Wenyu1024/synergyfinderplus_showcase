@@ -181,16 +181,11 @@ complete_enhanced <- DMSO %>%
 
 
 
-lets try wrap it into the function
-```{r}
-
-
-
-```
 
 
 
 ```{r}
+source("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/functions.R")
 data <- get_triocomb_data(id = 12255) 
 data1 <- data %>% 
   # mutate_at(6:8, .funs = function(x){x*1000}) 
