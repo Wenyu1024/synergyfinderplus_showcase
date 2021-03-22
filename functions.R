@@ -119,8 +119,6 @@ get_triocomb_data <- function(id, output_type= "DMSO_collapsed_data"){
     select(- Col, - Row) %>% 
     arrange(BlockId, Replicate, desc(conc3), desc(conc2), desc(conc1)) 
 
-  
-  
   # now deal with the DMSO issue, basically use response of rows where third drug is DMSO as zero concentration response for all the other drug 3
   
   DMSO <- complete %>% filter(drug3 == "DMSO")
@@ -138,5 +136,41 @@ get_triocomb_data <- function(id, output_type= "DMSO_collapsed_data"){
   complete_enhanced <- complete_enhanced %>%  mutate(block_id= blockid)
   
   if (output_type== "DMSO_collapsed_data"){return(complete_enhanced)}
-  if (output_type== "raw_data"){return(complete_enhanced)}
+  if (output_type== "raw_data"){return(complete)}
 }
+
+
+get_synergy_summary <- 
+  function(id){
+    dir <-"C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase" 
+    trio_set_file_name <-  paste0(dir,"/data/trio_data/", id, ".csv")
+    
+    # if (paste0(id, ".csv") %in% list.files(paste0(dir,"/data/trio_data/"))){
+    #   data1 = read_csv(trio_set_file_name)
+    # } else {
+      data1 <- get_triocomb_data(id) 
+      write_csv(data1 , file = trio_set_file_name )
+    # }
+    
+    res_response = ReshapeData(data1, data_type = "viability")
+    res_hsa <- CalculateSynergy(res_response , method = c("HSA"))
+    # res_Bliss <- CalculateSynergy(res_response , method = c("Bliss"))
+    hsa_summary <- res_hsa$synergy_scores %>% 
+      select(block_id, HSA_synergy) %>% 
+      group_by(block_id) %>% 
+      summarize(median= median(HSA_synergy) ,
+                mean= mean(HSA_synergy), 
+                max= max(HSA_synergy),
+                min= min(HSA_synergy)
+      ) %>% 
+      ungroup()
+    # bliss_summary <- res_Bliss$synergy_scores %>% 
+    #   select(block_id, Bliss_synergy) %>% 
+    #   group_by(block_id) %>% 
+    #   summarize(median= median(Bliss_synergy) ,
+    #             mean= mean(Bliss_synergy), 
+    #             max= max(Bliss_synergy)
+    #   )
+    # res <- c(hsa=list(hsa_summary), bliss=list(bliss_summary))
+    return(hsa_summary)
+  } 
