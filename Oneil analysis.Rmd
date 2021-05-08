@@ -6,179 +6,479 @@ output: html_notebook
 ```{r}
 library(openxlsx)
 library(tidyverse)
+library(synergyfinder)
+library(TidyComb)
 ```
 
 
-```{r}
-#note that the orignial data from oneil only contains so-called viability and ratio
-# the viability in the oringial dataset is cell_after/cell_before
-# the ratio in the original dataset isThe single-agent drug effects,
-#expressed as fractional inhibition between 0 (maximal inhibition) and 1 (no inhibition) 
-#relative to DMSO-treated controls
-#so although there should be a readout for DMSO, it was not directly provided in the orginaldata
-#but only record for drug.
-#however with ratio value as well as the viability value for the drug provided in original 
-#dataset we can recompute one viability value for DMSO for each cell*each batch
-
-#actually using ratio value produce  weird value to via dmso
-
-
-#another notice is that all the wells having a starting number of 400 cells
-
-
-#
-
-data5 <- read.xlsx('C:/Users/wenyu/Documents/work group Jing/Drugcomb/2016_ONeil/single.xlsx',1,na.strings = "NULL")
-head(data5)
-#calculating the median viability of DMSO
-#we didn't figure out why this didn't work
-# myfun1 <- function(x){
-#   y= unlist(na.omit(x))
-#   z= length(y)
-#   y1=y[z]
-#   y2=y[-z]
-#   m=log(median(y1)) / (log(y2)/log(4) +1)
-#   n= exp(m)
-# }
-
-#instead using mu/mumax to compute the via_dmso
-myfun2 <- function(x){
-  y= as.numeric(na.omit(x))
-  z= length(y)
-  y1=y[-z]
-  y2=y[z]
-  m=log(median(y1)) / (96*(y2-1))
-  n= exp(m)
-}
-
-
-data_dmso= data.matrix(data5[, c(5:11)], rownames.force = NA)
-data_dmso=apply(data_dmso, 1, myfun2 )
-names(data_dmso)=NULL
-#########
-## check why there are Inf in computed dmso viability
-#the Inf and the NA of via_DMSO is due to that the value mum/mumax equals 1
-#which means the viability of drug treated cell equals to dmso treated cell
-#in this case I can directly using the median of the drug treated cell viability
-#to denote the viability for DMSO
-# data5[which(data_dmso== Inf),]
-# which(data_dmso== Inf)
-# data5[is.na(data_dmso),]
-# which(is.na(data_dmso))
-# data5[c(3005,16417,11387),]
-# via_dmso= data_dmso[c(-3005,-16417,-11387)]
-# sort(x = via_dmso,decreasing = T)[1:10]
-for (i in c(3005,16417,11387)){
-   d= median(as.numeric(data5[i,5:10]),na.rm = T)
-   names(d)=NULL
-   data_dmso[i]= d
-}
-data_dmso[c(3005,16417,11387)]
-data5$viadmso= data_dmso
-# tbl_df(data5) %>% group_by(cell_line) %>% summarise(check= mean(viadmso))
-# #check if the viadmso clustered to the cells
-# library(ggplot2)
-# p <-ggplot(data5, aes(x=as.factor(BatchID), y=viadmso))+
-#   geom_boxplot()
-# p
-# 
-# p <-ggplot(data5, aes(x=as.factor(cell_line), y=viadmso))+
-#   geom_boxplot()+
-#   theme(axis.text.x = element_text(size = 10,angle = 90, hjust = 1))
-# p
-# 
-# data5$BatchID <- as.factor(data5$BatchID)
-# tbl_df(data5) %>% filter(cell_line== "NCIH2122") %>% group_by(BatchID) %>% summarize(ave=mean(viadmso)) 
-# hist((tbl_df(data5) %>% filter(cell_line== "NCIH2122") )$viadmso)
-# check <- data <- tbl_df(data5) %>% filter(cell_line== "NCIH2122") %>% filter(viadmso> 1.022)
-# fix(check)
-# 
-# hist((tbl_df(data5) %>% filter(cell_line== "COLO320DM") )$viadmso)
-# check <- data <- tbl_df(data5) %>% filter(cell_line== "COLO320DM") %>% filter(viadmso>1.025)
-# fix(check)
-# 
-# ##now I suspect that batch 1 and 2 used same control
-# #while batch three used different control
-# #another question is how can viability for cell so small
-# table(filter(tbl_df(data5),BatchID==3) %>% select(cell_line))
-# #despite it seems that this is the case in general, there are still some outlier
-# #which we can't explain.
-
-# we decide to neglect the outlier and use the median value of the estimated 
-# dmso viability for each cell* batch
-# 
-
-data_dmso_1=select(tbl_df(data5), c(BatchID, cell_line, viadmso)) %>% 
-  group_by(BatchID, cell_line) %>% 
-  summarise(viability=median(viadmso))
-data_dmso_1=mutate(data_dmso_1, drug_name='DMSO',conc=0,rep=1,cell_before=NA,cell_after=NA,time=96,resource='Oneil')
-#now reformat the orignial wide matrix(with six replicate per row) to long
-#matrix (six rows for the siz replicates within one batch for certain drug*cell*concentraion)
-#the problem here is that there are only three replicates for some batch rather than six
-#hence this result in some NA rows in the long_format of the data
-#these NA rows can simply be deleted without influencing the others
-colnames(data5)[5:10] <- 1:6
-data5=data5[,c(-13:-11)]
-library(tidyr)
-colnames(data5)
-data5= tbl_df(data5) %>% gather(key=rep, value= viability, -BatchID,-cell_line,-drug_name,-conc)
-data5=mutate(data5,cell_before=NA,cell_after=NA,time=96,resource='Oneil')
-
-###
-#combine the data5 and dmso dataset
-data5$rep=as.numeric(data5$rep)
-data5=full_join(data5,data_dmso_1)
-data5=data5[-which(is.na(data5$viability)),]
-colnames(data5)[1] <- "batch"
-data5$cell_after <- data5$cell_before <- as.numeric(data5$cell_before)
-```
-
-
-```{r}
-
-comb2 <- read.xlsx('C:/Users/wenyu/Documents/work group Jing/Drugcomb/2016_ONeil/double.xlsx',1,na.strings = "NULL")
-# data_dmso2=apply(comb2[, 7:11], 1, function(x) exp(log(median(x[-5], na.rm=TRUE)) / (x[5] - 1)))
-# data_dmso2=data.frame(data_dmso2,comb2$batch,comb2$cell_line) 
-# data_dmso2=tbl_df(data_dmso2) %>% filter(data_dmso2!=Inf) %>% filter(!is.na(data_dmso2))
-# data_dmso2=data_dmso2 %>% group_by(comb2.batch,comb2.cell_line) %>% summarise(viability=median(data_dmso2))
-#since comb data in Oneil is still using dmso from single drug experiments, we don't not add it here again
-colnames(comb2)[7:10]=1:4
-# comb2= comb2 %>% select(-ratio)
-comb2= comb2 %>% gather(key=rep, value= viability, -batch,-cell_line,-drug1,-conc1,-conc2,-drug2)
-comb2=mutate(comb2,cell_before=NA,cell_after=NA,time=96,resource='Oneil')
-#colnames(comb2)[c(1:7)] <- c(colnames(comb1)[c(10,7,1,5,4,6,9)])
-comb2$rep=as.integer(comb2$rep)
-comb2= comb2[which(is.na(comb2$viability)==F),]
-
-# how many blocks?
-comb2 %>% select(drug1,drug2)  %>% distinct() %>% nrow()
-
-
-comb2
-```
-Note to prepare drug combinnation screening data for synergy calculation, Single drug must be combined with doublue drug, so that synergy score can be calculated.
 
 Jing ask me to use drugcomb curated data directly. I got a huge csv file from Jehad. Lets see how this works
 ```{r}
-drugcomb_oneil <- read_csv("C:/Users/wenyu/Documents/work group Jing/Drugcomb/2016_ONeil/drugcomb_oneil.csv") 
+drugcomb_oneil <- read_csv("C:/Users/wenyu/Documents/work group Jing/Drugcomb/2016_ONeil/drugcomb_oneil_response.csv") 
+```
 
+search for drugpair*cell line that has highest synergy or highest antagonose 
+```{r}
+block_idx<- group_indices(.data = drugcomb_oneil, drug_row, drug_col, cell_line_name)
+```
+
+
+```{r}
+res_summary <- drugcomb_oneil %>%
+  bind_cols(block_idx= block_idx) %>%
+  group_by(block_idx) %>%
+  summarise_at(vars(synergy_zip:synergy_hsa), .funs = list(mean1=mean, median1=median, max1=max, min1=min), na.rm = TRUE) %>% ungroup()
+# save(res_summary)
+```
+
+
+there is no such thing as 5 dose concentration in Oneil drug
+```{r}
+tmp <- drugcomb_oneil %>% 
+  bind_cols(block_idx= block_idx) %>% 
+  group_by(block_idx) %>% 
+  summarize(N_conc1= length(unique(conc_r)))
+```
+
+Synergistic CI plot 7565
+<!-- based on reading the Oneil paper I will first check AZD1775 (MK-1775) and MK-8776 (891494-63-6) -->
+<!-- Note cell line batch replicate are all considered as replicates? -->
+
+
+```{r}
+# drug_row_list= sort(unique(drugcomb_oneil$drug_row))
+# drug_col_list= sort(unique(drugcomb_oneil$drug_col))
 data2 <- drugcomb_oneil %>% 
-  filter(block_id==1) %>% 
-  filter(cell_line_name== "A2058") %>% 
-  mutate(ConcUnit= "uM")
+  bind_cols(block_idx= block_idx) %>% 
+  filter(block_idx==12737) %>%
+  # filter(drug_row=="5-Fluorouracil") %>%
+  # filter(drug_col == "Veliparib") %>%
+  # filter(cell_line_name== "A2058") %>%
+  mutate(ConcUnit= "uM") %>% 
+  mutate(block_id =1 ) 
+# write_csv(data2, "Oneil_synergistic_testdata.csv")
+
+
+data2_matrix_format <-  data2 %>% 
+  select(conc_r, conc_c, inhibition) %>% 
+  group_by(conc_r,conc_c) %>% 
+  summarise(inhibition = mean(inhibition)) %>% 
+  pivot_wider(names_from = conc_c, values_from = inhibition)
+
+write_csv(data2_matrix_format, "Oneil_synergistic_testdata_matrix_format.csv")
+
+
+res_response <- ReshapeData(data2, data_type = "inhibition")
+res_HSA <- CalculateSynergy(res_response, method = c("HSA"))
+res_Bliss <- CalculateSynergy(res_response, method = c("Bliss"))
+res_Loewe <- CalculateSynergy(res_response, method = c("Loewe"))
+res_ZIP <- CalculateSynergy(res_response, method = c("ZIP"))
+res_list <- list(response=res_response, HSA_synergy= res_HSA, Bliss_synergy=res_Bliss, Loewe_synergy=res_Loewe, ZIP_synergy= res_ZIP)
+
+Plot2DrugHeatmap(res_response,plot_value = "response", plot_block = 1, statistic = "ci",summary_statistic = "mean") 
+
+for (i in 1:5){
+  res <- res_list[[i]]
+  p <- Plot2DrugHeatmap(res,plot_value = names(res_list[i]), plot_block = 1, statistic = "ci",summary_statistic = "mean") +
+  theme(axis.title.x=element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 12,color = "black"))+
+  theme(axis.title.y=element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12,color = "black"))
+  # print(p)
+  ggsave(p, filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/ciplot","/synergistic.", i,".pdf"), dpi=500,width = 18,height =8,units = "cm" )
+}
+```
+
+
+```{r}
+  res <- CalculateSynergy(res_response, method = c("HSA","Bliss","Loewe", "ZIP"))
+  p <- PlotBarometer(res,plot_concs = c(0.200,2.750),needle_text_size = 2.8,annotation_label_size = 5,needle_text_offset = -2,graduation_label_size = 2.8)
+  print(p)
+  ggsave(p, filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/baro_synergistic.pdf"), dpi=500,width = 8,height =8,units = "cm" )
+
+
+```
+
+
+
+```{r}
+# Antagonistic drug pair
+data2 <- drugcomb_oneil %>% 
+  bind_cols(block_idx= block_idx) %>% 
+  filter(block_idx== 17843) %>% 
+  mutate(ConcUnit= "uM") %>% 
+  mutate(block_id =1 )
+data2$drug_row <- "Paclitaxel"
+
+write_csv(data2, "Oneil_antagonistic_testdata.csv")
+
+data2_matrix_format <-  data2 %>% 
+  select(conc_r, conc_c, inhibition) %>% 
+  group_by(conc_r,conc_c) %>% 
+  summarise(inhibition = mean(inhibition)) %>% 
+  pivot_wider(names_from = conc_c, values_from = inhibition)
+
+write_csv(data2_matrix_format, "Oneil_antagonistic_testdata_matrix_format.csv")
+
 
 library(synergyfinder)
-res2 <- ReshapeData(data2, data_type = "inhibition")
+res_response <- ReshapeData(data2, data_type = "inhibition")
+res_hsa <- CalculateSynergy(res_response, method = c("HSA"))
+res_Bliss <- CalculateSynergy(res_response, method = c("Bliss"))
+res_loewe <- CalculateSynergy(res_response, method = c("Loewe"))
+res_zip <- CalculateSynergy(res_response, method = c("ZIP"))
+res_list <- list(response=res_response, HSA_synergy= res_hsa, Bliss_synergy=res_Bliss, Loewe_synergy=res_loewe, ZIP_synergy= res_zip)
+
+for (i in 1:5){
+  res <- res_list[[i]]
+  p <- Plot2DrugHeatmap(res,plot_value = names(res_list[i]), plot_block = 1, statistic = "ci",summary_statistic = "mean") +
+  theme(axis.title.x=element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 12,color = "black"))+
+  theme(axis.title.y=element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12,color = "black"))
+  ggsave(p, filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/ciplot","/antagonistic.", i,".pdf"), dpi=500,width = 18,height =8,units = "cm" )
+}
+```
+
+
+
+```{r}
+res <- CalculateSynergy(res_response, method = c("HSA","Bliss","Loewe", "ZIP"))
+tmp <- res[["synergy_scores"]] %>% select(conc1,conc2, contains("ref"))
+p <- PlotBarometer(res,plot_concs = c(0.001600, 2.000),needle_text_size = 2.8,annotation_label_size = 5,needle_text_offset = -2,graduation_label_size = 2.8)
+p
+ggsave(p, filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/baro_antagonistic.pdf"), dpi=500,width = 8,height = 8.2,units = "cm" )
+```
+
+
+SS plot
+```{r}
+# for this sensitivity-synergy plot you need multiple datapoints rather than only one drug pair
+# note there is a type in the function help page PlotSensitiveSynergy (Loewe not leowe)
+# there is also typo in the CalculateSensitivity
+
+# it will be superslow to use replicates. Use median value instead.
+# alternatively I can construct a synergy object by my own using existing synergy scores. 
+# The idea is to test PlotSensitiveSynergy function
+
+#get clear what input data is wanted for this function as data is now quite large.
+block_idx<- group_indices(.data = drugcomb_oneil, drug_row, drug_col)
+data2 <- drugcomb_oneil %>% 
+  bind_cols(block_idx= block_idx) %>%
+  select(-block_id) %>% 
+  rename(block_id=block_idx) %>% 
+  mutate(ConcUnit= "uM") %>% 
+  # filter(block_id<3) %>%
+  filter(cell_line_name== "A2058") %>% 
+  select(-synergy_zip, -synergy_bliss, -synergy_loewe,-synergy_hsa) %>% 
+  group_by_at(-5) %>% 
+  summarise(inhibition= median(inhibition)) %>% 
+  ungroup()
+  
+res_oneil <-  ReshapeData(data2, data_type = "inhibition") 
+res_oneil <-  CalculateSensitivity(res_oneil) 
+save(res_oneil,file = "res_oneil.RData")
+load("res_oneil.RData")
+oneil_hsa <-  CalculateSynergy(res_oneil, method = c("HSA"))
+oneil_bliss <-  CalculateSynergy(res_oneil, method = c("Bliss"))
+oneil_loewe <-  CalculateSynergy(res_oneil, method = c("Loewe"))
+oneil_ZIP<-  CalculateSynergy(res_oneil, method = c("ZIP"))
+# #there should be a parameter allowing user to choose whether they want to add geom_text.
+save(list = c("res_oneil", "oneil_bliss", "oneil_hsa", "oneil_loewe", "oneil_ZIP"),file = "res_oneil.RData")
+```
+
+
+```{r}
+PlotSensitiveSynergy(oneil_hsa,plot_synergy = "HSA",point_size = 0.5)+
+  ylab("Synergy Score")+
+    theme(axis.title.x=element_text(size = 10))+
+  theme(axis.text.x = element_text(size = 10,color = "black"))+
+  theme(axis.title.y=element_text(size = 10))+
+  theme(axis.text.y = element_text(size = 10,color = "black"))+
+  ggtitle("HSA")+
+  theme(plot.margin=unit(c(t=1,b=1,l=1,r=1),"cm"))+
+  ggsave(filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/hsa.pdf"), dpi=500,width = 8,height =8,units = "cm" )
+  
+  
+PlotSensitiveSynergy(oneil_loewe,plot_synergy = "Loewe",point_size = 0.5)+
+    ylab("Synergy Score")+
+    theme(axis.title.x=element_text(size = 10))+
+  theme(axis.text.x = element_text(size = 10,color = "black"))+
+  theme(axis.title.y=element_text(size = 10))+
+  theme(axis.text.y = element_text(size = 10,color = "black"))+
+  ggtitle("Loewe")+
+  theme(plot.margin=unit(c(t=1,b=1,l=1,r=1),"cm"))+
+  ggsave(filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/loewe.pdf"), dpi=500,width = 8,height =8,units = "cm" )
+  
+PlotSensitiveSynergy(oneil_bliss,plot_synergy = "Bliss",point_size = 0.5)+
+      ylab("Synergy Score")+
+    theme(axis.title.x=element_text(size = 10))+
+  theme(axis.text.x = element_text(size = 10,color = "black"))+
+  theme(axis.title.y=element_text(size = 10))+
+  theme(axis.text.y = element_text(size = 10,color = "black"))+
+  ggtitle("Bliss")+
+  theme(plot.margin=unit(c(t=1,b=1,l=1,r=1),"cm"))+
+  ggsave(filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/bliss.pdf"), dpi=500,width = 8,height =8,units = "cm" )
+
+PlotSensitiveSynergy(oneil_ZIP,plot_synergy = "ZIP",point_size = 0.5)+
+        ylab("Synergy Score")+
+    theme(axis.title.x=element_text(size = 10))+
+  theme(axis.text.x = element_text(size = 10,color = "black"))+
+  theme(axis.title.y=element_text(size = 10))+
+  theme(axis.text.y = element_text(size = 10,color = "black"))+
+  ggtitle("ZIP")+
+  theme(plot.margin=unit(c(t=1,b=1,l=1,r=1),"cm"))+
+  ggsave(filename = paste0("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig5/zip.pdf"), dpi=500,width = 8,height =8,units = "cm" )
+
+
+```
+
+
+Figure Z. A) An example table of a drug combination. B) Main targets/classifications/clinical stages of the O'neill drugs
+```{r}
+library(TidyComb)
+block_idx<- group_indices(.data = drugcomb_oneil, drug_row, drug_col)
+data2 <- drugcomb_oneil %>% 
+  bind_cols(block_idx= block_idx) %>%
+  select(-block_id) %>% 
+  rename(block_id=block_idx) %>% 
+  mutate(ConcUnit= "uM") %>% 
+  filter(block_id<2) %>%
+  filter(cell_line_name== "A2058") %>% 
+  select(-synergy_zip, -synergy_bliss, -synergy_loewe,-synergy_hsa) %>% 
+  group_by_at(-5) %>% 
+  summarise(inhibition= median(inhibition)) %>% 
+  ungroup()
+# now you have a 5by5 viability datatable for   one drug pair in A2058 cell line
+
+```
+
+```{r}
+drug_row_list= sort(unique(drugcomb_oneil$drug_row))
+drug_col_list= sort(unique(drugcomb_oneil$drug_col))
+tmp_cell <- AnnotateCell(cell_names = unique(drugcomb_oneil$cell_line_name),
+                         file = "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/data/cell_anno/tmp.xml")
+tmp_cell$tissue[is.na(tmp_cell$tissue)]= "Unknown"  
+tmp <- AnnotateDrug(drug_row_list)
+tmp1 <- tmp[["drug_annotation"]]
+
+tmp2 <- tmp[["target"]] 
+tmp2 <- tmp2 %>% 
+  separate_rows(target_protein_class,sep = ",") %>%
+  mutate(target_protein_class= str_trim(.data$target_protein_class)) %>% 
+  select(-inhibitor_type)
+tmp2$target_protein_class[tmp2$target_protein_class==""]= "Unknown"
+tmp2$target_protein_class[is.na(tmp2$target_protein_class)]= "Unknown"  
+
+
+
+# DownloadCellosaurus(file = "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/data/cell_anno/tmp.xml")
+# View(AnnotateDrug("5-Fluorouracil")[["drug_annotation"]])
+
+tmp_figure6a <- drugcomb_oneil %>% 
+    filter(cell_line_name== "A2058" ) %>% 
+    filter(drug_row== "5-Fluorouracil")%>%
+    filter(drug_col=="Vorinostat") %>% 
+    mutate(block_id= 1) %>% 
+    mutate(conc_unit= "um") %>% 
+    mutate(inhibition= round(.data$inhibition, digits = 2)) %>% 
+    select(cell_line_name, drug_row,conc_r,drug_col,conc_c,conc_unit, inhibition, block_id)
   
 
-# Plot monotherapy dose-response curves and dose response matrix
-PlotDoseResponse(res2, statistic = "ci", block_ids = 1,save_file = T,width = 30,height = 15)
-Plot2DrugSurface(res2, plot_block = 1)
+write_csv(tmp_figure6a, "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/res_fig/fig6/data_app.csv")
 
-# Calculate and visualize synergy scores
-res_hsa <- CalculateSynergy(res2, method = c("HSA"))
-res_Bliss <- CalculateSynergy(res2, method = c("Bliss"))
-res_loewe <- CalculateSynergy(res2, method = c("Loewe"))
-res_zip <- CalculateSynergy(res2, method = c("ZIP"))
+View(drugcomb_oneil %>% 
+       filter(cell_line_name== "A2058" ) %>% 
+       filter(drug_row== "5-Fluorouracil")%>%
+       filter(drug_col=="Vorinostat") %>%
+       select_at(c(2:6,11)) %>% 
+       mutate(conc_unit= "um") %>% 
+       mutate(inhibition= round(.data$inhibition, digits = 2)) %>% 
+       select(cell_line_name, drug_row,conc_r,drug_col,conc_c,conc_unit, inhibition))
+View(tmp1 %>% filter(input_name == "5-Fluorouracil") %>% select(-smiles,-inchikey))
+View(tmp1 %>% filter(input_name == "Vorinostat") %>% select(-smiles, -inchikey))
+View(tmp2 %>% filter(chembl_id== "CHEMBL185"))
+View(tmp2 %>% filter(chembl_id== "CHEMBL98"))
+tmp5 <- AnnotateCell(data2$cell_line_name[1],file = "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/data/cell_anno/tmp.xml")
+
+
 ```
+
+
+
+```{r}
+library(scales)
+clinical_phase_freq <- tmp1 %>% 
+  group_by(clinical_phase) %>% 
+  summarise(n = n()) %>% 
+  mutate(freq = n / sum(n),
+         text = paste0(round(freq, 4) * 100, " %")
+         ) %>% 
+  arrange(freq)
+
+tmp1$clinical_phase <- factor(
+  tmp1$clinical_phase,
+  levels = c("", 4, 3, 2, 1),
+  labels = c("Unknown", "Phase IV", "Phase III", "Phase II", "Phase I"))
+clinical_phase_freq$clinical_phase <- factor(
+  clinical_phase_freq$clinical_phase,
+  levels = c("", 4, 3, 2, 1),
+  labels = c("Unknown", "Phase IV", "Phase III", "Phase II", "Phase I"))
+
+clinical_phase_plot <- ggplot(data = tmp1, aes(y = clinical_phase)) +
+  geom_bar(fill = "#5D82BD") +
+  geom_text(data = clinical_phase_freq, aes(x = n, y = clinical_phase, label = text),
+            nudge_x = 0.3, size = 9/.pt) +
+  theme_classic() +
+  theme(axis.title.x=element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 12,color = "black"))+
+  theme(axis.title.y=element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12,color = "black"))+
+  theme(axis.title.y = element_blank()) +
+  # xlim(c(0,4500)) +
+  scale_x_continuous(trans = "log10",
+                     breaks = trans_breaks("log10", function(x) 10^x),
+                     labels = trans_format("log10", math_format(10^.x)),
+                     limits = c(1, 10^2)#,
+                     # expand = c(10, 10)
+                     )  +
+  # scale_x_continuous(limits = c(0, 4500), expand = c(0, 1)) +
+  ggtitle("Clinical Trial Phase")# +
+  # theme(
+  #   plot.title = element_text(hjust = 0.5),
+  #   axis.title.y = element_blank(),
+  #   axis.text.y = element_text(margin = margin(r = 0)),
+  #   panel.background = element_blank(),
+  #   panel.grid.major.y = element_blank(),
+  #   panel.grid.minor.y = element_blank(),
+  #   panel.grid.major.x = element_line(color = "grey90"),
+  #   panel.grid.minor.x = element_line(color = "grey90"),
+  #   axis.ticks = element_blank()
+  #   )
+clinical_phase_plot
+ggsave(clinical_phase_plot, filename = "figure6_b1.pdf" ,dpi=500,
+       width = 8,
+       height = 5.5,units = "cm" )
+```
+
+Target protein category
+```{r}
+library(scales)
+target_protein_category_freq <- tmp2 %>% 
+  group_by(target_protein_class) %>% 
+  summarise(n = n()) %>% 
+  mutate(freq = n / sum(n),
+         text = paste0(round(freq, 4) * 100, " %")
+         ) %>% 
+  arrange(desc(freq))
+
+tmp2$target_protein_class <- factor(
+  tmp2$target_protein_class,
+  levels = target_protein_category_freq$target_protein_class,
+  labels = target_protein_category_freq$target_protein_class
+  )
+target_protein_category_freq$target_protein_class <- factor(
+  target_protein_category_freq$target_protein_class,
+  levels = target_protein_category_freq$target_protein_class,
+  labels = target_protein_category_freq$target_protein_class
+  )
+
+target_protein_category_plot <- ggplot(data = tmp2, aes(y = target_protein_class)) +
+  geom_bar(fill = "#5D82BD") +
+  geom_text(data = target_protein_category_freq, aes(x = n, y = target_protein_class, label = text),
+            nudge_x = 0.32, size = 9/.pt) +
+  theme_classic() +
+  theme(axis.title.x=element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 12,color = "black"))+
+  theme(axis.title.y=element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12,color = "black"))+
+  theme(axis.title.y = element_blank()) +
+  # xlim(c(0,4500)) +
+  scale_x_continuous(trans = "log10",
+                     breaks = trans_breaks("log10", function(x) 10^x),
+                     labels = trans_format("log10", math_format(10^.x)),
+                     limits = c(1, 10^2.5)#,
+                     # expand = c(10, 10)
+                     )  +
+  # scale_x_continuous(limits = c(0, 4500), expand = c(0, 1)) +
+  ggtitle("Target Protein Class")# +
+  # theme(
+  #   plot.title = element_text(hjust = 0.5),
+  #   axis.title.y = element_blank(),
+  #   axis.text.y = element_text(margin = margin(r = 0)),
+  #   panel.background = element_blank(),
+  #   panel.grid.major.y = element_blank(),
+  #   panel.grid.minor.y = element_blank(),
+  #   panel.grid.major.x = element_line(color = "grey90"),
+  #   panel.grid.minor.x = element_line(color = "grey90"),
+  #   axis.ticks = element_blank()
+  #   )
+target_protein_category_plot
+ggsave(target_protein_category_plot,
+       filename = "figure6_b2.pdf" ,dpi=500,
+       width = 10,
+       height =8,units = "cm" )
+```
+cell line tissue type
+```{r}
+library(scales)
+tissue_freq <- tmp_cell %>% 
+  group_by(tissue) %>% 
+  summarise(n = n()) %>% 
+  mutate(freq = n / sum(n),
+         text = paste0(round(freq, 4) * 100, " %")
+         ) %>% 
+  arrange(desc(freq))
+
+tmp_cell$tissue <- factor(
+  tmp_cell$tissue,
+  levels = tissue_freq$tissue,
+  labels = c( "Unknown","Ovary","Lung", "Large_intestine","Skin","Breast",  "Prostate"  )
+  )
+tissue_freq$tissue <- factor(
+  tissue_freq$tissue,
+  levels = tissue_freq$tissue,
+  labels =c( "Unknown","Ovary","Lung", "Large_intestine","Skin","Breast",  "Prostate"  )
+  )
+
+tissue_plot <- ggplot(data = tmp_cell, aes(y = tissue)) +
+  geom_bar(fill = "#5D82BD") +
+  geom_text(data = tissue_freq, aes(x = n, y = tissue, label = text),
+            nudge_x = 1.8, size = 9/.pt) +
+  theme_classic() +
+  theme(axis.title.x=element_text(size = 12))+
+  theme(axis.text.x = element_text(size = 12,color = "black"))+
+  theme(axis.title.y=element_text(size = 12))+
+  theme(axis.text.y = element_text(size = 12,color = "black"))+
+  theme(axis.title.y = element_blank()) +
+  xlim(c(0,13)) +
+  # scale_x_continuous(trans = "log10",
+  #                    breaks = trans_breaks("log10", function(x) 10^x),
+  #                    labels = trans_format("log10", math_format(10^.x)),
+  #                    limits = c(1, 10^1.3)#,
+  #                    # expand = c(10, 10)
+  #                    )  +
+  # scale_x_continuous(limits = c(0, 4500), expand = c(0, 1)) +
+  ggtitle("Cell Line Tissue Origin")# +
+  # theme(
+  #   plot.title = element_text(hjust = 0.5),
+  #   axis.title.y = element_blank(),
+  #   axis.text.y = element_text(margin = margin(r = 0)),
+  #   panel.background = element_blank(),
+  #   panel.grid.major.y = element_blank(),
+  #   panel.grid.minor.y = element_blank(),
+  #   panel.grid.major.x = element_line(color = "grey90"),
+  #   panel.grid.minor.x = element_line(color = "grey90"),
+  #   axis.ticks = element_blank()
+  #   )
+tissue_plot
+
+ggsave(tissue_plot,
+       filename = "figure6_b3.pdf" ,dpi=500,
+       width = 9,
+       height =6.5,units = "cm" )
+
+ tissue_freq$tissue
+```
+
 

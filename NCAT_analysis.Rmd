@@ -8,112 +8,108 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-```
-
-
-
-```{r}
-source("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/functions.R")
-data <- get_triocomb_data(id = 12255) 
-data1 <- data %>% 
-  # mutate_at(6:8, .funs = function(x){x*1000}) 
-  filter(block_id==1) %>% 
-  # filter(drug3== "Atazanavir") %>% 
-  # filter(Replicate== 1)
-
 library(synergyfinder)
-res <- ReshapeData(data1, data_type = "inhibition")
 
-# Plot monotherapy dose-response curves and dose response matrix
-PlotDoseResponse(res, statistic = "ci", block_ids = 1,save_file = T,width = 30,height = 15)
-Plot2DrugSurface(res, plot_block = 1)
-
-# Calculate and visualize synergy scores
-res_hsa <- CalculateSynergy(res, method = c("HSA"))
-res_Bliss <- CalculateSynergy(res, method = c("Bliss"))
-res_loewe <- CalculateSynergy(res, method = c("Loewe"))
-res_zip <- CalculateSynergy(res, method = c("ZIP"))
-
-# 2D heatmap with 95% confidence intervals
-Plot2DrugHeatmap(res_hsa,plot_value = "HSA_synergy", plot_block = 1, statistic = "ci") 
-Plot2DrugHeatmap(res_Bliss,plot_value = "Bliss_synergy", plot_block = 1, statistic = "ci")  
-# 2D heatmap with 95% confidence intervals and mean hsa synergy for whole matrix
-Plot2DrugHeatmap(res_loewe, plot_value = "Loewe_synergy", plot_block = 1,
-                 statistic = "ci", summary_statistic = "mean")
-Plot2DrugHeatmap(res_zip, plot_value = "ZIP_synergy", plot_block = 1,
-                 statistic = "ci", summary_statistic = "mean")
-# 3D landscape
-Plot2DrugSurface(res_hsa, plot_value = "HSA_synergy", plot_block = 1)
-Plot2DrugSurface(res_zip, plot_value = "ZIP_synergy", plot_block = 1)
-
+source("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/functions.R")
 
 ```
-
 
 
 search for drugs 
 ```{r}
-library(synergyfinder)
-
+# library(future)
+# library(furrr)
 metatable <- read_csv("C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/data/assay/metatable.csv")
 id_list <- metatable %>% filter(comb==3) %>% pull(id)
 
 
 # tmp <- get_synergy_summary(11345)
-res_summary <- map(.x = id_list,.f = get_synergy_summary)
+# plan(multicore,workers=3)
+# res_summary <- map(.x = id_list,
+#                    .f = ~possibly(get_synergy_summary, otherwise = 'error here')(.x))
+# # plan(sequential)
+# save(res_summary, file = "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/Malaria_TACT_zipsummary.RData" )
+```
 
 
-save(res_summary, file = "C:/Users/wenyu/Documents/work group Jing/Drugcomb/synergyfinder/synergyfinderplus_showcase/Malaria_TACT_hsasummary.RData" )
+```{r}
 res_df <- metatable %>% filter(comb==3) %>% 
   inner_join(y = res_summary %>% tibble() %>% bind_cols(id= id_list), by= "id" ) %>% 
   unnest()
+# for errors in 11311 no zero concentration.
+id_list1 <- res_df %>% filter(!is.na(.) )
+# data1 <- get_triocomb_data(10030)
 ```
 
+
 Synergistic example id 11336 block 1
+4912 K13 wild-type (morphology: suspension)
 ```{r}
-library(synergyfinder)
-data <- get_triocomb_data(id = 11336) 
-data1 <- data 
-  filter(block_id==1)
-  # filter(Replicate== 1)
-  
+data <- get_triocomb_data(id = 12255) 
+
+data1 <- data %>% 
+  filter(block_id==4) %>% 
+  filter(Replicate== 1)
+
+
+write_csv(data1, "NCAT_synergistic.csv")
+
 res_response = ReshapeData(data1, data_type = "viability")
+
+res_zip <- CalculateSynergy(res_response, method = c("ZIP"))
+
+res_response[["response"]] %>% pull(response) %>% mean() #78.87
+res_response[["response"]] %>% pull(response) %>% median() #98
+res_zip[["synergy_scores"]] %>% pull(ZIP_synergy) %>% mean() #11.71
+res_zip[["synergy_scores"]] %>% pull(ZIP_synergy) %>% median() # 1.7
+
 res_hsa <- CalculateSynergy(res_response, method = c("HSA"))
-# tmp1 <- res_hsa$synergy_scores
 res_Bliss <- CalculateSynergy(res_response, method = c("Bliss"))
 res_loewe <- CalculateSynergy(res_response, method = c("Loewe"))
-res_zip <- CalculateSynergy(res_response, method = c("ZIP"))
-PlotMultiDrugSurface(res_response, plot_block = 1, plot_value = "response")
-PlotMultiDrugSurface(res_hsa, plot_block = 1, plot_value = "HSA_synergy") # four synerg score
-PlotMultiDrugSurface(res_Bliss, plot_block = 1, plot_value = "Bliss_synergy")
-PlotMultiDrugSurface(res_loewe, plot_block = 1, plot_value = "Loewe_synergy")
-PlotMultiDrugSurface(res_zip, plot_block = 1, plot_value = "ZIP_synergy")
+```
+
+
+```{r}
+PlotMultiDrugSurface(res_response, plot_block = 4, plot_value = "response",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_hsa, plot_block = 4, plot_value = "HSA_synergy",show_data_points = F,width = 800,height = 400) # four synerg score
+PlotMultiDrugSurface(res_Bliss, plot_block = 4, plot_value = "Bliss_synergy",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_loewe, plot_block = 4, plot_value = "Loewe_synergy",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_zip, plot_block = 4, plot_value = "ZIP_synergy",show_data_points = F,width = 800,height = 400)
 ```
 
 
 antagonistic example id 11911 block4
-
+cell line Dd2 (morphology: suspension)
 https://stackoverflow.com/questions/43355444/how-can-i-save-plotly-graphs-in-high-quality
 ```{r}
 library(synergyfinder)
 data <- get_triocomb_data(id = 11911) 
-data1 <- data %>% filter(block_id==4)
+data1 <- data %>% filter(block_id==3) %>%   filter(Replicate== 1)
+write_csv(data1, "NCAT_antagonistic.csv")
+
 res_response = ReshapeData(data1, data_type = "viability")
 res_hsa <- CalculateSynergy(res_response, method = c("HSA"))
 res_Bliss <- CalculateSynergy(res_response, method = c("Bliss"))
 res_loewe <- CalculateSynergy(res_response, method = c("Loewe"))
 res_zip <- CalculateSynergy(res_response, method = c("ZIP"))
+res_response[["response"]] %>% pull(response) %>% mean()  #57.18
+res_response[["response"]] %>% pull(response) %>% median() #79.04
+res_zip[["synergy_scores"]] %>% pull(ZIP_synergy) %>% mean() #-13.05
+res_zip[["synergy_scores"]] %>% pull(ZIP_synergy) %>% median() #-19.09
+```
 
 
-p <- PlotMultiDrugSurface(res_response, plot_block = 4, plot_value = "response")
-p
-p %>% plotly::orca(file = "filename.svg")
-         selenium = RSelenium::rsDriver(browser = "chrome"))
+```{r}
+# p <- PlotMultiDrugSurface(res_response, plot_block = 4, plot_value = "response")
+# p
+# p %>% plotly::orca(file = "filename.svg")
+#          selenium = RSelenium::rsDriver(browser = "chrome"))
 
-PlotMultiDrugSurface(res_hsa, plot_block = 4, plot_value = "HSA_synergy") # four synerg score
-PlotMultiDrugSurface(res_Bliss, plot_block = 4, plot_value = "Bliss_synergy")
-PlotMultiDrugSurface(res_loewe, plot_block = 4, plot_value = "Loewe_synergy")
-PlotMultiDrugSurface(res_zip, plot_block = 4, plot_value = "ZIP_synergy")
+PlotMultiDrugSurface(res_response, plot_block = 3, plot_value = "response",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_hsa, plot_block = 3, plot_value = "HSA_synergy",show_data_points = F,width = 800,height = 400) # four synerg score
+PlotMultiDrugSurface(res_Bliss, plot_block = 3, plot_value = "Bliss_synergy",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_loewe, plot_block = 3, plot_value = "Loewe_synergy",show_data_points = F,width = 800,height = 400)
+PlotMultiDrugSurface(res_zip, plot_block = 3, plot_value = "ZIP_synergy",show_data_points = F,width = 800,height = 400)
 ```
 
 
